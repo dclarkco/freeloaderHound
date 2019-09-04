@@ -12,13 +12,16 @@
 #todo:
 #email, scheduling, tmp directory config, testing
 
+#bugs:
+#sniffLease needs to only report a diff tdelt if it is greater than the previous. The log should be read chronologically, I suspect it is updating the original time when i dont need to
+
 
 from datetime import datetime 
 import os, re, sys
 
 #print(sys.version)
 timeLimit = 3600 #seconds
-debug = 0
+debug = False
 offenders = {}
 
 def timeDeltaCalc(time1, time2):
@@ -57,38 +60,40 @@ def sniffLease():
 
 				if MAC in offenders:
 					metadata = offenders[MAC]
-					tDelta = timeDeltaCalc(metadata[0], TIME)
-					
+					tDelta = timeDeltaCalc(metadata[0], TIME) #check time delta of previous record against current
+					#
 					offenders[MAC].append(tDelta)
-					print(MAC + " is lingering on a free lease for " + str(tDelta) + "...")
+					print(MAC + " is lingering on a free lease for " + str(tDelta))
 
 				# #strip time and set to 'time'
 				 #use tdelta calc and time parsing to get time delta as timeDelta 
-				offenders [MAC] = [TIME, NET] #final collection of offenders, change to only save if tdelta is >3600
+				offenders[MAC] = [TIME, NET] #first collection of offenders, change to only save if tdelta is >3600
 				if(debug):
 					print(line.strip('\n'))
 				#save offenders as csv, ensure that it doesn't grow beyond scope of the data being handled
 		if(debug):
 			print(offenders)
+		writeOffenders(offenders)			
 		return offenders
 
 def writeOffenders(offenders):
 	import csv
 	with open('offenders.csv', 'w') as csv_file:
 		writer = csv.writer(csv_file)
-	for key, value in mydict.items():
-	   writer.writerow([key, value])
+		for key, value in offenders.items():
+	   		writer.writerow([key, value])
+	print("wrote "+ str(len(offenders)) + " offenders to disk...")
 
+def readOffenders():
 	with open('dict.csv') as csv_file:
 		reader = csv.reader(csv_file)
-		mydict = dict(reader)
+		dictreader = dict(reader)
 
 def sendSniffs(snifflist):
 	#sends an email of the offenders saved to csv by sniffLease
 	#using smtplib
 
 	import smtplib
-
 
 sniffLease()
 
