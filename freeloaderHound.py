@@ -4,35 +4,32 @@
 #monitors dhcp log for lingering devices on the network without a lease, and alerts sysadmins
 
 #done:
-#data intake, data parsing, regex, subnet 
+#data intake, data parsing, regex, subnet, timeDelta
 
 #inprogress:
-#data logging and checking, csv tmp storage, timeDelta
+#data logging and checking, csv tmp storage
 
 #todo:
 #email, scheduling, tmp directory config, testing
 
 #bugs:
-#sniffLease needs to only report a diff tdelt if it is greater than the previous. The log should be read chronologically, I suspect it is updating the original time when i dont need to
 
-
-from datetime import datetime 
+import datetime, time
 import os, re, sys
 
 #print(sys.version)
 timeLimit = 3600 #seconds
-debug = False
+debug = 1
 offenders = {}
 
 def timeDeltaCalc(time1, time2):
 	timeFormat = "%b %d %H:%M:%S"
 
-
-	time1 = datetime.strptime(time1, timeFormat)
-	time2 = datetime.strptime(time2, timeFormat)
+	time1 = datetime.datetime.strptime(time1, timeFormat)
+	time2 = datetime.datetime.strptime(time2, timeFormat)
 	try:
 		tDelta = (time2 - time1)
-		return tDelta
+		return tDelta.total_seconds()
 	except:
 		print("Time delta could not be calculated, time format must be wrong or missing")
 
@@ -46,7 +43,7 @@ def sniffLease():
 	regexTIME = re.compile('(\w{3} \d{2} \d{2}:\d{2}:\d{2})')
 	regexNET = re.compile('[/][0-9]{2}')
 	timeFormat = "%b %d %H:%M:%S"
-	output_filename = os.path.normpath("tmp/dhcpfreeloaders.txt")
+	#output_filename = os.path.normpath("tmp/dhcpfreeloaders.txt")
 
 	#file IO:
 	with open('dhcpd.log', 'r') as inFile:
@@ -57,19 +54,18 @@ def sniffLease():
 				MAC = regexMAC.findall(line)[0] # search for all mac addresses in line and set to MAC
 				NET = regexNET.findall(line)[0].strip('/')
 				TIME = regexTIME.findall(line)[0]
+				tDeltaMAX = 0
+				tDelta = 0
+				metadata = {}
+				
+				if MAC not in offenders:
+					metadata["initTIME"], metadata["lingerTIME"], metadata["VLAN"]=TIME,tDeltaMAX,NET
+					offenders[MAC] = metadata
+				else:
+					tDelta = timeDeltaCalc(offenders[MAC]["initTIME"],TIME)
+					if((tDelta) > offenders[MAC]["lingerTIME"]):
+						offenders[MAC]["lingerTIME"] = round(float(tDelta/3600),1)
 
-				if MAC in offenders:
-					metadata = offenders[MAC]
-					tDelta = timeDeltaCalc(metadata[0], TIME) #check time delta of previous record against current
-					#
-					offenders[MAC].append(tDelta)
-					print(MAC + " is lingering on a free lease for " + str(tDelta))
-
-				# #strip time and set to 'time'
-				 #use tdelta calc and time parsing to get time delta as timeDelta 
-				offenders[MAC] = [TIME, NET] #first collection of offenders, change to only save if tdelta is >3600
-				if(debug):
-					print(line.strip('\n'))
 				#save offenders as csv, ensure that it doesn't grow beyond scope of the data being handled
 		if(debug):
 			print(offenders)
@@ -80,19 +76,23 @@ def writeOffenders(offenders):
 	import csv
 	with open('offenders.csv', 'w') as csv_file:
 		writer = csv.writer(csv_file)
+		writer.writerow(("MAC address", "Network join time", "Network linger time (hours)", "VLAN ID"))
+		i = 0
 		for key, value in offenders.items():
-	   		writer.writerow([key, value])
-	print("wrote "+ str(len(offenders)) + " offenders to disk...")
+			if(value["lingerTIME"]>1):
+				i+=1
+	   			writer.writerow((key, value["initTIME"], value["lingerTIME"], value["VLAN"]))
+	print("wrote "+ str(i) + " offenders to disk...")
 
 def readOffenders():
-	with open('dict.csv') as csv_file:
+	with open('offenders.csv') as csv_file:
 		reader = csv.reader(csv_file)
 		dictreader = dict(reader)
 
 def sendSniffs(snifflist):
 	#sends an email of the offenders saved to csv by sniffLease
 	#using smtplib
-
+	readOffenders
 	import smtplib
 
 sniffLease()
