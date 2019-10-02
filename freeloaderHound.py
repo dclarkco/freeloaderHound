@@ -1,37 +1,26 @@
 #freeleasehound.py
 #2019 | dclark NCAR EOL/CWIG
-#https://github.com/dclarkco/freeloaderHound
-#monitors dhcp log for lingering devices on the network without a lease, and alerts sysadmins
+"""
+https://github.com/dclarkco/freeloaderHound
+monitors dhcp log for lingering devices on the network without a lease, and alerts sysadmins
 
-#done:
-#data intake, data parsing, regex, subnet, timeDelta
+done:
+data intake, data parsing, regex, subnet, timeDelta
 
-#inprogress:
-#data logging and checking, csv tmp storage
+inprogress:
+duplicate warning avoidance, scheduling, tmp directory config, testing
 
-#todo:
-#email, scheduling, tmp directory config, testing
-
-#bugs:
-
+bugs:
+Cannot parse MM/DD/YYYY and MM/D/YYYY (Sep 30 vs Oct 1)
+"""
 import datetime, time
 import os, re, sys
 
+
 #print(sys.version)
 timeLimit = 3600 #seconds
-debug = 1
+debug = True
 offenders = {}
-
-def timeDeltaCalc(time1, time2):
-	timeFormat = "%b %d %H:%M:%S"
-
-	time1 = datetime.datetime.strptime(time1, timeFormat)
-	time2 = datetime.datetime.strptime(time2, timeFormat)
-	try:
-		tDelta = (time2 - time1)
-		return tDelta.total_seconds()
-	except:
-		print("Time delta could not be calculated, time format must be wrong or missing")
 
 def sniffLease():
 	# loads, scans, and unloads log
@@ -40,7 +29,7 @@ def sniffLease():
 	# Regex expressions:
 	regexMAC = re.compile(ur'([0-9a-f]{2}(?::[0-9a-f]{2}){5})')
 	regexFREE = "no free leases"
-	regexTIME = re.compile('(\w{3} \d{2} \d{2}:\d{2}:\d{2})')
+	regexTIME = re.compile('(\w{3} \d{1,2} \d{2}:\d{2}:\d{2})')
 	regexNET = re.compile('[/][0-9]{2}')
 	timeFormat = "%b %d %H:%M:%S"
 	#output_filename = os.path.normpath("tmp/dhcpfreeloaders.txt")
@@ -72,16 +61,27 @@ def sniffLease():
 		writeOffenders(offenders)			
 		return offenders
 
+def timeDeltaCalc(time1, time2):
+	timeFormat = "%b %d %H:%M:%S"
+
+	time1 = datetime.datetime.strptime(time1, timeFormat)
+	time2 = datetime.datetime.strptime(time2, timeFormat)
+	try:
+		tDelta = (time2 - time1)
+		return tDelta.total_seconds()
+	except:
+		print("Time delta could not be calculated, time format must be wrong or missing")
+
 def writeOffenders(offenders):
 	import csv
 	with open('offenders.csv', 'w') as csv_file:
 		writer = csv.writer(csv_file)
-		writer.writerow(("MAC address", "Network join time", "Network linger time (hours)", "VLAN ID"))
+		writer.writerow(("MAC address", "VLAN", "init timestamp ", "linger time (hrs)"))
 		i = 0
 		for key, value in offenders.items():
 			if(value["lingerTIME"]>1):
 				i+=1
-	   			writer.writerow((key, value["initTIME"], value["lingerTIME"], value["VLAN"]))
+	   			writer.writerow((key, value["VLAN"], value["initTIME"], value["lingerTIME"]))
 	print("wrote "+ str(i) + " offenders to disk...")
 
 def readOffenders():
@@ -89,11 +89,51 @@ def readOffenders():
 		reader = csv.reader(csv_file)
 		dictreader = dict(reader)
 
-def sendSniffs(snifflist):
+def sendSniffs():
 	#sends an email of the offenders saved to csv by sniffLease
-	#using smtplib
-	readOffenders
 	import smtplib
 
+	# Import the email modules we'll need
+	from email.mime.text import MIMEText
+
+	# Open a plain text file for reading.  For this example, assume that
+	# the text file contains only ASCII characters.
+	with open('offenders.csv') as input:
+	    # Create a text/plain message
+	    msg = input.read()
+	    msg = msg.replace(',','  |  ')
+
+	gmail_user = "flickybot@gmail.com"
+	gmail_password = "******"
+
+	sent_from = "flickybot@gmail.com"
+	to = "diglooclark@gmail.com"
+	subject = ("Network free lease sniffer: "+str(datetime.datetime.now()))
+	body = msg
+
+	email_text = """\
+From: %s
+To: %s
+Subject: %s
+
+Offenders found on local network listed below:
+
+%s
+	""" % (sent_from, to, subject, body)
+	if(debug):
+		print(email_text)
+	try:
+	    server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
+	    server.ehlo()
+	    server.login(gmail_user, gmail_password)
+	    server.sendmail(sent_from, to, email_text)
+	    server.close()
+
+	    print 'Email sent!'
+	except:
+	    print 'Something went wrong...'
+
 sniffLease()
+
+sendSniffs()
 
