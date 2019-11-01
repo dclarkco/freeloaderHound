@@ -5,13 +5,17 @@ https://github.com/dclarkco/freeloaderHound
 monitors dhcp log for lingering devices on the network without a lease, and alerts sysadmins
 
 done:
-data intake, data parsing, regex, subnet, timeDelta
+data intake, data parsing, regex, timeDelta/parsing, email
 
 inprogress:
-duplicate warning avoidance, scheduling, tmp directory config, testing
+tmp directory config, testing
+
+todo:
+dupe avoidance:
+	only return results from within 9-12 hours of running, and only machines without a notification in the past 24
+	only with warnings within an hour of running
 
 bugs:
-Cannot parse MM/DD/YYYY and MM/D/YYYY (Sep 30 vs Oct 1)
 """
 import datetime, time
 import os, re, sys
@@ -29,8 +33,7 @@ def sniffLease():
 	# Regex expressions:
 	regexMAC = re.compile(ur'([0-9a-f]{2}(?::[0-9a-f]{2}){5})')
 	regexFREE = "no free leases"
-	regexTIMEMM = re.compile('(\w{3} \d{2} \d{2}:\d{2}:\d{2})')
-	regexTIMEM = re.compile('(\w{3}  \d{1} \d{2}:\d{2}:\d{2})')
+	regexTIME = re.compile('(\w{3} \d{2} \d{2}:\d{2}:\d{2})|(\w{3}  \d{1} \d{2}:\d{2}:\d{2})')
 	regexNET = re.compile('[/][0-9]{2}')
 	timeFormat = "%b %d %H:%M:%S"
 	#output_filename = os.path.normpath("tmp/dhcpfreeloaders.txt")
@@ -43,12 +46,13 @@ def sniffLease():
 
 				MAC = regexMAC.findall(line)[0] # search for all mac addresses in line and set to MAC
 				NET = regexNET.findall(line)[0].strip('/')
-				try:
-					TIME = regexTIMEMM.findall(line)[0]
-				except:
-					TIME = regexTIMEM.findall(line)[0]
+				if(regexTIME.findall(line)[0][0] == ''):
+					TIME = regexTIME.findall(line)[0][1]
+				else:
+					TIME = regexTIME.findall(line)[0][0]
+
 				tDeltaMAX = 0
-				tDelta = 0
+				tDelta = -1
 				metadata = {}
 				
 				if MAC not in offenders:
@@ -60,10 +64,11 @@ def sniffLease():
 						offenders[MAC]["lingerTIME"] = round(float(tDelta/3600),1)
 
 				#save offenders as csv, ensure that it doesn't grow beyond scope of the data being handled
-		if(debug):
-			print(offenders)
-		writeOffenders(offenders)			
-		return offenders
+	if(debug):
+		print(offenders, "log closed: "+str(inFile.closed))
+	writeOffenders(offenders)
+	return offenders
+
 
 def timeDeltaCalc(time1, time2):
 	timeFormat = "%b %d %H:%M:%S"
@@ -78,14 +83,14 @@ def timeDeltaCalc(time1, time2):
 
 def writeOffenders(offenders):
 	import csv
-	with open('offenders.csv', 'w') as csv_file:
+	with open('/tmp/offenders.csv', 'w') as csv_file:
 		writer = csv.writer(csv_file)
-		writer.writerow(("MAC address", "VLAN", "init timestamp ", "linger time (hrs)"))
+		writer.writerow(("MAC address", "VLAN", "network init time", "linger time (hrs)"))
 		i = 0
 		for key, value in offenders.items():
 			if(value["lingerTIME"]>1):
 				i+=1
-	   			writer.writerow((key, value["VLAN"], value["initTIME"], value["lingerTIME"]))
+				writer.writerow((key, value["VLAN"], value["initTIME"], value["lingerTIME"]))
 	print("wrote "+ str(i) + " offenders to disk...")
 
 def readOffenders():
@@ -100,16 +105,16 @@ def sendSniffs():
 	from email.mime.text import MIMEText
 
 	with open('offenders.csv') as input:
-	    # Create a text/plain message
-	    msg = input.read()
-	    msg = msg.replace(',','  |  ')
+		# Create a text/plain message
+		msg = input.read()
+		msg = msg.replace(',','  |  ')
 
 	gmail_user = "flickybot@gmail.com"
-	gmail_password = "******"
+	gmail_password = "G.clad58904"
 
 	sent_from = "flickybot@gmail.com"
-	to = "diglooclark@gmail.com"
-	subject = ("Network free lease sniffer: "+str(datetime.datetime.now()))
+	to = "dclark@ucar.edu"
+	subject = ("Network free lease sniffer: "+str(datetime.datetime.now().strftime('%m/%d/%y %H:%M')))
 	body = msg
 
 	email_text = """\
@@ -124,15 +129,15 @@ Offenders found on local network listed below:
 	if(debug):
 		print(email_text)
 	try:
-	    server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
-	    server.ehlo()
-	    server.login(gmail_user, gmail_password)
-	    server.sendmail(sent_from, to, email_text)
-	    server.close()
+		server = smtplib.SMTP_SSL('smtp.gmail.com', 465)
+		server.ehlo()
+		server.login(gmail_user, gmail_password)
+		server.sendmail(sent_from, to, email_text)
+		server.close()
 
-	    print 'Email sent!'
+		print 'Email sent!'
 	except:
-	    print 'Something went wrong...'
+		print 'Something went wrong...'
 
 sniffLease()
 
