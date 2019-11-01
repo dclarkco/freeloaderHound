@@ -29,7 +29,8 @@ def sniffLease():
 	# Regex expressions:
 	regexMAC = re.compile(ur'([0-9a-f]{2}(?::[0-9a-f]{2}){5})')
 	regexFREE = "no free leases"
-	regexTIME = re.compile('(\w{3} \d{1,2} \d{2}:\d{2}:\d{2})')
+	regexTIMEMM = re.compile('(\w{3} \d{2} \d{2}:\d{2}:\d{2})')
+	regexTIMEM = re.compile('(\w{3}  \d{1} \d{2}:\d{2}:\d{2})')
 	regexNET = re.compile('[/][0-9]{2}')
 	timeFormat = "%b %d %H:%M:%S"
 	#output_filename = os.path.normpath("tmp/dhcpfreeloaders.txt")
@@ -42,7 +43,10 @@ def sniffLease():
 
 				MAC = regexMAC.findall(line)[0] # search for all mac addresses in line and set to MAC
 				NET = regexNET.findall(line)[0].strip('/')
-				TIME = regexTIME.findall(line)[0]
+				try:
+					TIME = regexTIMEMM.findall(line)[0]
+				except:
+					TIME = regexTIMEM.findall(line)[0]
 				tDeltaMAX = 0
 				tDelta = 0
 				metadata = {}
@@ -93,11 +97,8 @@ def sendSniffs():
 	#sends an email of the offenders saved to csv by sniffLease
 	import smtplib
 
-	# Import the email modules we'll need
 	from email.mime.text import MIMEText
 
-	# Open a plain text file for reading.  For this example, assume that
-	# the text file contains only ASCII characters.
 	with open('offenders.csv') as input:
 	    # Create a text/plain message
 	    msg = input.read()
